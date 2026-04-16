@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -253,14 +254,18 @@ func buildPostgresConnStr(config Config) string {
 // buildOracleConnStr builds an Oracle connection string from the config
 func buildOracleConnStr(config Config) string {
 	// Priority 1: TNS Entry (tnsnames.ora)
-	if config.TNSEntry != "" && config.TNSAdmin != "" {
-		// Use TNS alias with admin directory
+	if config.TNSEntry != "" {
+		// Set TNS_ADMIN via env var so go-ora can resolve the alias in tnsnames.ora.
+		// Using a URL query param (?tns admin=...) is unreliable on Windows due to
+		// backslash paths and the unencoded space in the parameter name.
+		if config.TNSAdmin != "" && os.Getenv("TNS_ADMIN") == "" {
+			_ = os.Setenv("TNS_ADMIN", config.TNSAdmin)
+		}
+
 		connStr := fmt.Sprintf("oracle://%s:%s@%s",
 			config.User,
 			config.Password,
 			config.TNSEntry)
-
-		connStr += fmt.Sprintf("?tns admin=%s", config.TNSAdmin)
 
 		return addOracleOptions(connStr, config)
 	}

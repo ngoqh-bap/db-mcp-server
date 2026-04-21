@@ -37,9 +37,15 @@ type DatabaseConfig struct {
 
 // LoadConfig loads the configuration from environment variables and optional JSON config
 func LoadConfig(logDir string) (*Config, error) {
-	// Reinitialize logger with info level and custom log directory
-	// This ensures consistent logging throughout config loading regardless of initial setup
-	logger.Initialize(logger.Config{Level: "info", LogDir: logDir})
+	// Check for verbose flag - logging enabled only when explicitly requested
+	// Default to error level (silent), debug when VERBOSE=true
+	logLevel := "error"
+	if os.Getenv("VERBOSE") == "true" || os.Getenv("VERBOSE") == "1" {
+		logLevel = "debug"
+	}
+
+	// Initialize logger with appropriate level
+	logger.Initialize(logger.Config{Level: logLevel, LogDir: logDir})
 
 	// Load .env file if it exists
 	err := godotenv.Load()
@@ -77,7 +83,7 @@ func LoadConfig(logDir string) (*Config, error) {
 		}
 	}
 
-	// Parse DISABLE_LOGGING env var
+	// Check for verbose flag - logging enabled only when explicitly requested
 	disableLogging := false
 	if v := getEnv("DISABLE_LOGGING", "false"); v == "true" || v == "1" {
 		disableLogging = true
@@ -112,6 +118,10 @@ func LoadConfig(logDir string) (*Config, error) {
 			return nil, fmt.Errorf("failed to parse config file %s: %w", config.ConfigPath, err)
 		}
 
+		// Resolve SQLite database paths relative to the config file directory
+		configDir := filepath.Dir(config.ConfigPath)
+		resolveSQLitePaths(&multiDBConfig, configDir)
+
 		config.MultiDBConfig = &multiDBConfig
 	} else {
 		logger.Info("Warning: Config file not found at %s, using environment variables", config.ConfigPath)
@@ -132,6 +142,22 @@ func LoadConfig(logDir string) (*Config, error) {
 	}
 
 	return config, nil
+}
+
+// resolveSQLitePaths resolves SQLite database_path values to absolute paths
+// relative to the config file directory
+func resolveSQLitePaths(multiDBConfig *db.MultiDBConfig, configDir string) {
+	if multiDBConfig == nil {
+		return
+	}
+
+	for i := range multiDBConfig.Connections {
+		conn := &multiDBConfig.Connections[i]
+		if conn.Type == "sqlite" && conn.DatabasePath != "" && !filepath.IsAbs(conn.DatabasePath) {
+			// Resolve relative path against config file directory
+			conn.DatabasePath = filepath.Join(configDir, conn.DatabasePath)
+		}
+	}
 }
 
 // getEnv gets an environment variable or returns a default value
